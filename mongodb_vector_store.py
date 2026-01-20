@@ -20,14 +20,8 @@ from pymongo import MongoClient, ASCENDING
 from pymongo.collection import Collection
 from pymongo.database import Database
 
-from python.env_utils import doublecheck_pkgs, doublecheck_env
-
 # Load environment variables from .env
 load_dotenv()
-
-# Check and print results
-doublecheck_env(".env")  # check environmental variables
-doublecheck_pkgs(pyproject_path="pyproject.toml", verbose=True)
 
 from langgraph.store.base import (
     BaseStore,
