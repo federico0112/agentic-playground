@@ -3,3 +3,6 @@ uv.lock
 venv/
 .idea/
 books/
+.langgraph_api/
+__pycache__/
+
