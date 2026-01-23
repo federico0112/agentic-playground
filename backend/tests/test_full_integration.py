@@ -159,7 +159,7 @@ def test_pdf_file():
 @pytest.fixture(scope="module")
 def upload_client():
     """Create FastAPI test client for upload server."""
-    from upload_server import app
+    from backend.upload_server import app
     return TestClient(app)
 
 
@@ -228,7 +228,7 @@ class TestFullIntegration:
     @pytest.mark.integration
     def test_semantic_search_finds_content(self):
         """Test that semantic search finds the uploaded content."""
-        from semantic_search_agent import semantic_search
+        from backend.semantic_search_agent import semantic_search
 
         # Query about wizard schools
         results = semantic_search.invoke({
@@ -257,7 +257,7 @@ class TestFullIntegration:
     @pytest.mark.integration
     def test_semantic_search_specific_query(self):
         """Test semantic search with specific query about fireball."""
-        from semantic_search_agent import semantic_search
+        from backend.semantic_search_agent import semantic_search
 
         results = semantic_search.invoke({
             "query": "Tell me about the fireball spell",
@@ -277,7 +277,7 @@ class TestFullIntegration:
     @pytest.mark.integration
     def test_agent_answers_question(self):
         """Test the full agent answering a question."""
-        from semantic_search_agent import agent
+        from backend.semantic_search_agent import agent
 
         # Ask the agent a question
         query = "What are the eight schools of magic that wizards can specialize in?"
@@ -302,7 +302,9 @@ class TestFullIntegration:
         assert len(response_content) > 0
 
         # Check if response mentions some schools of magic
-        response_lower = response_content[-1]["text"].lower()
+        # Handle new SearchResults format: response_content is a string with the answer
+        response_text = response_content if isinstance(response_content, str) else str(response_content)
+        response_lower = response_text.lower()
         schools_mentioned = sum(1 for school in ["abjuration", "conjuration", "divination",
                                                    "enchantment", "evocation", "illusion",
                                                    "necromancy", "transmutation"]
@@ -314,7 +316,7 @@ class TestFullIntegration:
     @pytest.mark.integration
     def test_agent_cites_sources(self):
         """Test that agent cites sources in its response."""
-        from semantic_search_agent import agent
+        from backend.semantic_search_agent import agent
 
         query = "What spells should every wizard know?"
 
@@ -335,9 +337,11 @@ class TestFullIntegration:
         assert len(response_content) > 0
 
         # Response should mention specific spells from our test content
+        # Handle new SearchResults format: response_content is a string with the answer
+        response_text = response_content if isinstance(response_content, str) else str(response_content)
         spells_mentioned = sum(1 for spell in ["magic missile", "shield", "fireball",
                                                 "light", "mage hand", "prestidigitation"]
-                               if spell in response_content[-1]["text"].lower())
+                               if spell in response_text.lower())
 
         print(f"Spells mentioned: {spells_mentioned}")
         assert spells_mentioned >= 2, "Agent should mention specific spells from the content"
@@ -345,7 +349,7 @@ class TestFullIntegration:
     @pytest.mark.integration
     def test_agent_handles_followup_questions(self):
         """Test agent handling follow-up questions in a conversation."""
-        from semantic_search_agent import agent
+        from backend.semantic_search_agent import agent
 
         # First question
         query1 = "What is evocation magic?"
@@ -360,8 +364,10 @@ class TestFullIntegration:
             if hasattr(last_message, 'content') and last_message.content:
                 response1 = last_message.content
 
-        response1_lower = response1[-1]["text"].lower()
-        print(f"Response 1: {response1[:200]}...")
+        # Handle new SearchResults format: response is a string with the answer
+        response1_text = response1 if isinstance(response1, str) else str(response1)
+        response1_lower = response1_text.lower()
+        print(f"Response 1: {response1_text[:200]}...")
         assert "evocation" in response1_lower or "damage" in response1_lower or "fireball" in response1_lower
 
         # Second question (different topic)
@@ -377,8 +383,10 @@ class TestFullIntegration:
             if hasattr(last_message, 'content') and last_message.content:
                 response2 = last_message.content
 
-        response2_lower = response2[-1]["text"].lower()
-        print(f"Response 2: {response2[:200]}...")
+        # Handle new SearchResults format: response is a string with the answer
+        response2_text = response2 if isinstance(response2, str) else str(response2)
+        response2_lower = response2_text.lower()
+        print(f"Response 2: {response2_text[:200]}...")
         assert "study" in response2_lower or "learn" in response2_lower or "train" in response2_lower
 
 

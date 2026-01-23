@@ -39,7 +39,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from vector_storage_helpers import (
+from backend.vector_storage_helpers import (
     create_embeddings,
     create_mongo_vector_store,
     store_documents,

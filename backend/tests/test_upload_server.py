@@ -135,7 +135,8 @@ class TestUploadEndpoint:
             files={"file": ("", io.BytesIO(b"content"), "application/pdf")}
         )
 
-        assert response.status_code == 400
+        # FastAPI returns 422 for validation errors
+        assert response.status_code == 422
 
     @patch("backend.upload_server.PyPDFLoader")
     def test_upload_returns_page_count(self, mock_loader, client, sample_pdf_bytes, mock_components):
@@ -205,7 +206,7 @@ class TestUploadEndpoint:
 class TestMetadataHandling:
     """Tests for document metadata handling."""
 
-    @patch("upload_server.PyPDFLoader")
+    @patch("backend.upload_server.PyPDFLoader")
     def test_upload_fixes_source_metadata(self, mock_loader, client, sample_pdf_bytes, mock_components):
         """Test that source metadata is updated to original filename."""
         mock_docs = [
@@ -224,7 +225,7 @@ class TestMetadataHandling:
         # Verify that source metadata was updated
         assert mock_docs[0].metadata["source"] == "original_name.pdf"
 
-    @patch("upload_server.PyPDFLoader")
+    @patch("backend.upload_server.PyPDFLoader")
     def test_upload_preserves_page_metadata(self, mock_loader, client, sample_pdf_bytes, mock_components):
         """Test that page metadata is preserved."""
         mock_docs = [
@@ -250,12 +251,12 @@ class TestGetComponents:
 
     def test_get_components_initializes_lazily(self, mock_components):
         """Test that components are initialized lazily."""
-        import upload_server
+        import backend.upload_server as upload_server
         upload_server._embeddings = None
         upload_server._vector_store = None
         upload_server._text_splitter = None
 
-        from upload_server import get_components
+        from backend.upload_server import get_components
 
         embeddings, vector_store, text_splitter = get_components()
 
@@ -265,12 +266,12 @@ class TestGetComponents:
 
     def test_get_components_reuses_instances(self, mock_components):
         """Test that components are reused on subsequent calls."""
-        import upload_server
+        import backend.upload_server as upload_server
         upload_server._embeddings = None
         upload_server._vector_store = None
         upload_server._text_splitter = None
 
-        from upload_server import get_components
+        from backend.upload_server import get_components
 
         result1 = get_components()
         result2 = get_components()

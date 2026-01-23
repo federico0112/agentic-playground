@@ -11,10 +11,10 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 class TestCreateEmbeddings:
     """Tests for create_embeddings function."""
 
-    @patch("backend.load_book_vectors.GoogleGenerativeAIEmbeddings")
+    @patch("backend.vector_storage_helpers.GoogleGenerativeAIEmbeddings")
     def test_create_embeddings_returns_instance(self, mock_embeddings_class):
         """Test that create_embeddings returns an embeddings instance."""
-        from backend.load_book_vectors import create_embeddings
+        from backend.vector_storage_helpers import create_embeddings
 
         mock_instance = MagicMock()
         mock_embeddings_class.return_value = mock_instance
@@ -26,10 +26,10 @@ class TestCreateEmbeddings:
             model="models/gemini-embedding-001"
         )
 
-    @patch("backend.load_book_vectors.GoogleGenerativeAIEmbeddings")
+    @patch("backend.vector_storage_helpers.GoogleGenerativeAIEmbeddings")
     def test_create_embeddings_with_correct_model(self, mock_embeddings_class):
         """Test that the correct embedding model is used."""
-        from backend.load_book_vectors import create_embeddings
+        from backend.vector_storage_helpers import create_embeddings
 
         create_embeddings()
 
@@ -40,11 +40,11 @@ class TestCreateEmbeddings:
 class TestCreateMongoVectorStore:
     """Tests for create_mongo_vector_store function."""
 
-    @patch("backend.load_book_vectors.MongoDBAtlasVectorSearch")
-    @patch("backend.load_book_vectors.MongoClient")
+    @patch("backend.vector_storage_helpers.MongoDBAtlasVectorSearch")
+    @patch("backend.vector_storage_helpers.MongoClient")
     def test_create_mongo_vector_store_connects(self, mock_client, mock_vector_search, mock_embeddings):
         """Test that vector store connects to MongoDB."""
-        from backend.load_book_vectors import create_mongo_vector_store
+        from backend.vector_storage_helpers import create_mongo_vector_store
 
         mock_collection = MagicMock()
         mock_client.return_value.__getitem__.return_value.__getitem__.return_value = mock_collection
@@ -61,11 +61,11 @@ class TestCreateMongoVectorStore:
         mock_client.assert_called_once_with("mongodb://localhost:27017")
         mock_vector_search.assert_called_once()
 
-    @patch("backend.load_book_vectors.MongoDBAtlasVectorSearch")
-    @patch("backend.load_book_vectors.MongoClient")
+    @patch("backend.vector_storage_helpers.MongoDBAtlasVectorSearch")
+    @patch("backend.vector_storage_helpers.MongoClient")
     def test_create_mongo_vector_store_creates_index(self, mock_client, mock_vector_search, mock_embeddings):
         """Test that vector index is created when requested."""
-        from backend.load_book_vectors import create_mongo_vector_store
+        from backend.vector_storage_helpers import create_mongo_vector_store
 
         mock_collection = MagicMock()
         mock_client.return_value.__getitem__.return_value.__getitem__.return_value = mock_collection
@@ -83,11 +83,11 @@ class TestCreateMongoVectorStore:
 
         mock_store_instance.create_vector_search_index.assert_called_once_with(dimensions=3072)
 
-    @patch("backend.load_book_vectors.MongoDBAtlasVectorSearch")
-    @patch("backend.load_book_vectors.MongoClient")
+    @patch("backend.vector_storage_helpers.MongoDBAtlasVectorSearch")
+    @patch("backend.vector_storage_helpers.MongoClient")
     def test_create_mongo_vector_store_skips_index(self, mock_client, mock_vector_search, mock_embeddings):
         """Test that vector index creation is skipped when not requested."""
-        from backend.load_book_vectors import create_mongo_vector_store
+        from backend.vector_storage_helpers import create_mongo_vector_store
 
         mock_collection = MagicMock()
         mock_client.return_value.__getitem__.return_value.__getitem__.return_value = mock_collection
@@ -111,7 +111,7 @@ class TestStoreDocuments:
 
     def test_store_documents_chunks_and_stores(self, sample_documents, mock_vector_store):
         """Test that documents are chunked and stored."""
-        from backend.load_book_vectors import store_documents
+        from backend.vector_storage_helpers import store_documents
 
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=100,
@@ -131,7 +131,7 @@ class TestStoreDocuments:
 
     def test_store_documents_generates_uuids(self, sample_documents, mock_vector_store):
         """Test that UUIDs are generated for each chunk."""
-        from backend.load_book_vectors import store_documents
+        from backend.vector_storage_helpers import store_documents
 
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
@@ -153,7 +153,7 @@ class TestStoreDocuments:
 
     def test_store_documents_empty_input(self, mock_vector_store):
         """Test behavior with empty documents dict."""
-        from backend.load_book_vectors import store_documents
+        from backend.vector_storage_helpers import store_documents
 
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=100,

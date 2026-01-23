@@ -7,3 +7,8 @@ books/
 __pycache__/
 test.txt
 .env
+
+semantic-search-ui/node_modules/*
+semantic-search-ui/node_modules/.cache/
+semantic-search-ui/package-lock.json
+semantic-search-ui/

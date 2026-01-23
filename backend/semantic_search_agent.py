@@ -37,29 +37,11 @@ from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmb
 from langchain.agents import create_agent
 from langchain_mongodb import MongoDBAtlasVectorSearch
 from pymongo import MongoClient
+from pydantic import BaseModel
+
 
 # Load environment variables from parent directory
 load_dotenv(Path(__file__).parent.parent / ".env")
-
-# ============================================================================
-# LANGSMITH CONFIGURATION
-# ============================================================================
-
-# LangSmith will automatically trace if these environment variables are set:
-# LANGCHAIN_TRACING_V2=true
-# LANGCHAIN_API_KEY=<your-api-key>
-# LANGCHAIN_PROJECT=semantic-search-agent
-
-def setup_langsmith():
-    """Configure LangSmith tracing.
-
-    Supports both LANGCHAIN_* and LANGSMITH_* environment variable naming conventions.
-    # """
-
-    # Ensure LangSmith is properly configured
-    os.environ["LANGCHAIN_TRACING_V2"] = "true"
-    os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
-    os.environ["LANGCHAIN_PROJECT"] = "semantic_search_agent"  # Set a project name
 
 
 # ============================================================================
@@ -191,7 +173,7 @@ SYSTEM_PROMPT = """You are a Semantic Search Assistant for a book collection. Yo
 
 Your Capabilities:
 1. semantic_search(query, top_k) - Search books for relevant content
-2. get_collection_stats() - View collection statistics and available books
+2. get_source_filenames() - View available sources
 
 Workflow:
 - When the user asks a question:
@@ -211,10 +193,12 @@ Important Guidelines:
 - VERY IMPORTANT: Use semantic_search multiple times with different queries if needed to gather comprehensive information
 
 Response Format:
-1. Direct answer to the user's question
+1. Direct answer to the user's question, in a user readable friendly format.
 2. Supporting details from search results
-3. Source citations located next to source info, (e.g., "This is a fact. According to [Book Name], page X...")
-4. Relevance assessment if scores are low
+3. Source citation list must not have duplicate sources, same source from different pages dont count as duplicate.
+4. Source citations located next to source info but noted with a [1] (index starts at 1) which correspond to the index of the source in source list.
+5. Dont overuse citations, have only a couple per source on really important details. Ensure source citation in text map to an index in source list.
+5. Output is a structured output containing answer to user questions, list of sources, and how many times semantic_search was called.
 
 Remember: You're helping users explore and understand the content of books through semantic search. Focus on providing accurate, well-sourced answers."""
 
@@ -222,125 +206,15 @@ Remember: You're helping users explore and understand the content of books throu
 # AGENT SETUP
 # ============================================================================
 
+class SearchResults(BaseModel):
+    search_result_message: str
+    times_semantic_search_tool_called: int
+    sources: List[str]
+
+
 agent = create_agent(
     model=llm,
     tools=[semantic_search, get_source_filenames],
     system_prompt=SYSTEM_PROMPT,
+    response_format=SearchResults
 )
-
-# ============================================================================
-# EXECUTION MODES
-# ============================================================================
-
-
-def run_single_query(agent, query: str):
-    """Run a single query through the agent.
-
-    Args:
-        agent: The semantic search agent
-        query: User's question
-    """
-    print(f"\n{'='*80}")
-    print(f"Query: {query}")
-    print(f"{'='*80}\n")
-
-    # Stream agent execution
-    for step in agent.stream(
-        {"messages": [{"role": "user", "content": query}]},
-        stream_mode="values",
-    ):
-        step["messages"][-1].pretty_print()
-
-    print(f"\n{'='*80}\n")
-
-
-def run_interactive(agent):
-    """Run the agent in interactive mode.
-
-    Args:
-        agent: The semantic search agent
-    """
-    print(f"\n{'='*80}")
-    print("INTERACTIVE SEMANTIC SEARCH")
-    print(f"{'='*80}")
-    print("Ask questions about your books. Type 'exit' or 'quit' to stop.")
-    print(f"{'='*80}\n")
-
-    while True:
-        try:
-            query = input("\nYour question: ").strip()
-
-            if query.lower() in ['exit', 'quit', 'q']:
-                print("\nGoodbye!")
-                break
-
-            if not query:
-                continue
-
-            run_single_query(agent, query)
-
-        except KeyboardInterrupt:
-            print("\n\nGoodbye!")
-            break
-        except Exception as e:
-            print(f"\n❌ Error: {e}\n")
-
-
-# ============================================================================
-# MAIN
-# ============================================================================
-
-def main():
-    """Main entry point for semantic search agent."""
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Semantic Search Agent with LangSmith Integration"
-    )
-    parser.add_argument(
-        "--interactive", "-i",
-        action="store_true",
-        help="Run in interactive mode"
-    )
-    parser.add_argument(
-        "--query", "-q",
-        type=str,
-        help="Single query to execute"
-    )
-    parser.add_argument(
-        "--stats",
-        action="store_true",
-        help="Show collection statistics and exit"
-    )
-
-    args = parser.parse_args()
-
-    # Setup LangSmith
-    setup_langsmith()
-    print()
-
-    # Initialize vector store
-    global vector_store
-    vector_store = initialize_vector_store()
-    print()
-
-    # Run based on mode
-    if args.stats:
-        # Just show stats
-        result = get_source_filenames.invoke({})
-        print(result)
-    elif args.interactive:
-        # Interactive mode
-        run_interactive(agent)
-    elif args.query:
-        # Single query mode
-        run_single_query(agent, args.query)
-    else:
-        # Default: run example query
-        example_query = "What is the role of a dungeon master in D&D?"
-        print(f"Running example query (use --interactive for interactive mode)")
-        run_single_query(agent, example_query)
-
-
-if __name__ == "__main__":
-    main()
