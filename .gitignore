@@ -1,8 +1,9 @@
-.env
+backend/.env
 uv.lock
 venv/
 .idea/
 books/
 .langgraph_api/
 __pycache__/
-
+test.txt
+.env

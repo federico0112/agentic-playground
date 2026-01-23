@@ -1,42 +1,54 @@
 [project]
-# Only needed so uv/pip recognizes it as a project
-name = "notebooks-to-explore"
-version = "0.0.0"
-description = "A collection of tutorial notebooks"
+name = "semantic-search-backend"
+version = "1.0.0"
+description = "Semantic search agent backend with LangGraph and MongoDB"
 requires-python = ">=3.11,<3.14"
 
-# Dependencies you need in the notebooks
 dependencies = [
+    # LangChain ecosystem
     "langgraph>=1.0.0",
     "langchain>=1.0.0",
     "langchain-core>=1.0.0",
-    "langchain-openai>=1.0.0",
-    "langchain-anthropic>=1.0.0",
     "langchain-community>=0.4",
     "langchain-mongodb",
     "langchain-google-genai>=2.0.0",
-    "jupyter>=1.0.0",
+
+    # LangGraph server
     "langgraph-cli[inmem]",
-    "langgraph-api==0.7.6",
-    "langchain-mcp-adapters",
-    "pypdf",
+    "langgraph-api>=0.7.0",
+
+    # Database
     "pymongo>=4.6.0",
     "motor>=3.3.0",
-    "numpy>=1.24.0",
-    "pytest",
-    "tqdm>=4.66.0"
+
+    # PDF processing
+    "pypdf",
+
+    # Web server
+    "fastapi",
+    "uvicorn[standard]",
+    "python-multipart",
+
+    # Utilities
+    "python-dotenv",
+    "tqdm>=4.66.0",
 ]
 
 [project.optional-dependencies]
-# Extra tools for development
 dev = [
-    "nbdime>=4.0.2",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-order",
+    "httpx",
+    "reportlab",
     "ruff>=0.6.1",
-    "mypy>=1.11.1"
+    "mypy>=1.11.1",
 ]
 
+[project.scripts]
+upload-server = "backend.upload_server:main"
+
 [tool.ruff]
-# What to check
 lint.select = [
     "E",    # pycodestyle
     "F",    # pyflakes
@@ -46,9 +58,8 @@ lint.select = [
     "UP",   # pyupgrade
 ]
 
-# Rules to ignore
 lint.ignore = [
-    "T201", # allow print()
+    "T201",  # allow print()
     "UP006", # keep using typing.List etc.
     "UP007", # allow Union[X, Y]
     "UP035", # ignore Self type suggestion
@@ -60,8 +71,18 @@ lint.ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["D", "UP"]
+"backend/tests/*" = ["D", "UP"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+asyncio_mode = "auto"
+markers = [
+    "integration: marks tests as integration tests requiring real services (MongoDB, Google API)",
+]
