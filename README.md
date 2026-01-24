@@ -52,12 +52,7 @@ pip install -e .
 
 Or using uv (recommended):
 ```bash
-uv pip install -e .
-```
-
-For development dependencies:
-```bash
-pip install -e ".[dev]"
+uv sync
 ```
 
 ### 4. Install Frontend Dependencies
@@ -89,8 +84,8 @@ You need to start three servers in separate terminal windows:
 The upload server handles PDF file uploads and vectorization.
 
 ```bash
-# From project root
-python -m backend.upload_server
+cd backend/
+uvicorn upload_server:app --port 8000
 ```
 
 The server will start on `http://localhost:8000`
