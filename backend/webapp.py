@@ -1,12 +1,32 @@
-"""Upload server that vectorizes PDFs into MongoDB."""
+"""
+Custom FastAPI routes for LangGraph server.
 
+This adds the upload endpoint to the LangGraph server, consolidating
+the backend into a single server that handles both:
+1. Agent endpoints (provided by LangGraph)
+2. Custom upload endpoint (defined here)
+"""
+
+import asyncio
 import logging
 import os
 import tempfile
 from pathlib import Path
 
 from dotenv import load_dotenv
-# Load environment variables from parent directory
+from langchain_community.document_loaders import PyPDFLoader
+from fastapi import FastAPI, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pymongo import MongoClient
+
+from backend.vector_storage_helpers import (
+    create_embeddings,
+    create_mongo_vector_store,
+    store_documents_async
+)
+
+# Load environment variables
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 # ============================================================================
@@ -17,7 +37,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 100
 
-# MongoDB Configuration - loaded from environment variables with defaults
+# MongoDB Configuration
 MONGODB_URI = os.getenv(
     "MONGODB_URI",
     "mongodb://localhost:61213/?directConnection=true&serverSelectionTimeoutMS=2000&appName=mongosh+2.6.0"
@@ -34,19 +54,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, UploadFile, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+# ============================================================================
+# FASTAPI APP
+# ============================================================================
 
-from backend.vector_storage_helpers import (
-    create_embeddings,
-    create_mongo_vector_store,
-    store_documents,
+app = FastAPI(
+    title="Semantic Search API Extensions",
+    description="Custom routes for PDF upload and management"
 )
 
-app = FastAPI(title="Book Upload & Vectorization Server")
-
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -55,42 +72,50 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Lazy initialization
+# ============================================================================
+# SHARED COMPONENTS (Lazy Initialization)
+# ============================================================================
+
 _embeddings = None
 _vector_store = None
 _text_splitter = None
 
 
-def get_components():
-    """Lazy initialization of ML components."""
-    global _embeddings, _vector_store, _text_splitter
-
+def get_embeddings():
+    """Get or initialize embeddings."""
+    global _embeddings
     if _embeddings is None:
         logger.info("Initializing Google Generative AI embeddings...")
         _embeddings = create_embeddings()
         logger.info("Embeddings initialized")
+    return _embeddings
 
+
+def get_vector_store():
+    """Get or initialize MongoDB vector store."""
+    global _vector_store
     if _vector_store is None:
+        embeddings = get_embeddings()
         logger.info(f"Connecting to MongoDB: {DB_NAME}/{COLLECTION_NAME}")
-        _vector_store = create_mongo_vector_store(
-            mongodb_uri=MONGODB_URI,
-            db_name=DB_NAME,
-            collection_name=COLLECTION_NAME,
-            index_name=MONGODB_INDEX_NAME,
-            embeddings=_embeddings,
-            create_index=False,  # We'll create it explicitly below
-        )
+        _vector_store = create_mongo_vector_store(MONGODB_URI, DB_NAME, COLLECTION_NAME,
+                                                  embeddings=embeddings, index_name=MONGODB_INDEX_NAME)
+
+        # Ensure index exists
+        try:
+            logger.info(f"Ensuring vector index '{MONGODB_INDEX_NAME}' exists...")
+            _vector_store.create_vector_search_index(dimensions=3072)
+            logger.info("Vector index created/verified")
+        except Exception as e:
+            logger.debug(f"Index creation note: {e}")
+
         logger.info("MongoDB vector store connected")
 
-    # Always ensure index exists before writing
-    try:
-        logger.info(f"Ensuring vector index '{MONGODB_INDEX_NAME}' exists...")
-        _vector_store.create_vector_search_index(dimensions=3072)
-        logger.info("Vector index created/verified")
-    except Exception as e:
-        # Index likely already exists
-        logger.debug(f"Index creation note: {e}")
+    return _vector_store
 
+
+def get_text_splitter():
+    """Get or initialize text splitter."""
+    global _text_splitter
     if _text_splitter is None:
         logger.info(f"Creating text splitter (chunk_size={CHUNK_SIZE}, overlap={CHUNK_OVERLAP})")
         _text_splitter = RecursiveCharacterTextSplitter(
@@ -98,9 +123,12 @@ def get_components():
             chunk_overlap=CHUNK_OVERLAP,
             add_start_index=True,
         )
+    return _text_splitter
 
-    return _embeddings, _vector_store, _text_splitter
 
+# ============================================================================
+# CUSTOM ROUTES
+# ============================================================================
 
 @app.post("/upload")
 async def upload_and_vectorize(file: UploadFile):
@@ -125,14 +153,14 @@ async def upload_and_vectorize(file: UploadFile):
         logger.info(f"  File size: {len(content)} bytes")
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(content)
+            await asyncio.to_thread(tmp.write, content)
             tmp_path = tmp.name
         logger.info(f"  Saved to temp: {tmp_path}")
 
         # Load PDF
         logger.info("Loading PDF with PyPDFLoader...")
         loader = PyPDFLoader(tmp_path)
-        documents = loader.load()
+        documents = await loader.aload()
         logger.info(f"  Loaded {len(documents)} pages")
 
         # Fix metadata to use original filename and preserve info
@@ -157,17 +185,18 @@ async def upload_and_vectorize(file: UploadFile):
 
         # Get components and vectorize
         logger.info("Getting ML components...")
-        _, vector_store, text_splitter = get_components()
+        vector_store = get_vector_store()
+        text_splitter = get_text_splitter()
 
         logger.info("Storing documents (chunking + embedding + MongoDB insert)...")
-        stored_ids = store_documents(
+        stored_ids = await store_documents_async(
             documents={Path(file.filename): documents},
             vector_store=vector_store,
             text_splitter=text_splitter,
         )
 
         # Cleanup
-        Path(tmp_path).unlink(missing_ok=True)
+        await asyncio.to_thread(Path(tmp_path).unlink, missing_ok=True)
         logger.info("  Temp file cleaned up")
 
         chunk_count = len(stored_ids.get(Path(file.filename), []))
@@ -190,23 +219,67 @@ async def upload_and_vectorize(file: UploadFile):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/health")
-async def health():
-    logger.debug("Health check")
-    return {"status": "ok"}
+@app.get("/sources")
+async def get_sources():
+    """Get information about available document sources in the vector store."""
+    try:
+        logger.info("Fetching available sources from MongoDB...")
+        client = MongoClient(MONGODB_URI)
+        collection = client[DB_NAME][COLLECTION_NAME]
+
+        # Get unique sources
+        sources = collection.distinct("source")
+        total_chunks = collection.count_documents({})
+
+        logger.info(f"  Found {len(sources)} unique sources")
+        logger.info(f"  Total chunks: {total_chunks}")
+
+        return {
+            "status": "ok",
+            "sources": sources,
+            "total_chunks": total_chunks,
+            "database": DB_NAME,
+            "collection": COLLECTION_NAME
+        }
+    except Exception as e:
+        logger.exception(f"ERROR fetching sources: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.on_event("startup")
-async def startup():
-    logger.info("=" * 50)
-    logger.info("Upload server starting...")
-    logger.info(f"  MongoDB URI: {MONGODB_URI[:30]}...")
-    logger.info(f"  Database: {DB_NAME}")
-    logger.info(f"  Collection: {COLLECTION_NAME}")
-    logger.info("=" * 50)
+@app.get("/upload/health")
+async def upload_health():
+    """Health check for upload service."""
+    try:
+        # Check MongoDB connection
+        client = MongoClient(MONGODB_URI)
+        client.server_info()
+        mongodb_status = "ok"
+    except Exception:
+        mongodb_status = "error"
+
+    try:
+        # Check if embeddings can be initialized
+        get_embeddings()
+        embeddings_status = "ok"
+    except Exception:
+        embeddings_status = "error"
+
+    return {
+        "status": "ok",
+        "service": "upload",
+        "mongodb": mongodb_status,
+        "embeddings": embeddings_status
+    }
 
 
-if __name__ == "__main__":
-    import uvicorn
-    logger.info("Starting server on http://0.0.0.0:8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+# ============================================================================
+# STARTUP LOGGING
+# ============================================================================
+
+# Log configuration on import (LangGraph manages lifespan, so no @app.on_event)
+logger.info("=" * 50)
+logger.info("Custom routes initialized")
+logger.info(f"  Upload endpoint: /upload")
+logger.info(f"  Sources endpoint: /sources")
+logger.info(f"  MongoDB: {DB_NAME}/{COLLECTION_NAME}")
+logger.info("=" * 50)

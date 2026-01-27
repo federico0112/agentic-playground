@@ -5,8 +5,9 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import './App.css';
 
-const LANGGRAPH_URL = 'http://localhost:2024';
-const UPLOAD_URL = 'http://localhost:8000';
+const BACKEND_URL = 'http://localhost:2024'; // Unified backend (LangGraph + custom routes)
+const LANGGRAPH_URL = BACKEND_URL;
+const UPLOAD_URL = BACKEND_URL;
 
 // Helper function to parse SearchResults from Python repr format
 const parseSearchResults = (content) => {

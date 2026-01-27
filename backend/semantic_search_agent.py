@@ -34,8 +34,10 @@ from dotenv import load_dotenv
 from langchain_core.tools import tool
 from langchain_core.documents import Document
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain.agents.middleware import ModelRetryMiddleware
 from langchain.agents import create_agent
 from langchain_mongodb import MongoDBAtlasVectorSearch
+from langchain.agents.middleware import SummarizationMiddleware
 from pymongo import MongoClient
 from pydantic import BaseModel
 
@@ -206,6 +208,7 @@ Remember: You're helping users explore and understand the content of books throu
 # AGENT SETUP
 # ============================================================================
 
+
 class SearchResults(BaseModel):
     search_result_message: str
     times_semantic_search_tool_called: int
@@ -216,5 +219,17 @@ agent = create_agent(
     model=llm,
     tools=[semantic_search, get_source_filenames],
     system_prompt=SYSTEM_PROMPT,
+    middleware=[
+        SummarizationMiddleware(
+            model=llm,
+            trigger=("fraction", 0.8),
+            keep=("fraction", 0.3),
+        ),
+        ModelRetryMiddleware(
+            max_retries=3,
+            backoff_factor=2.0,
+            initial_delay=2.0,
+        ),
+    ],
     response_format=SearchResults
 )

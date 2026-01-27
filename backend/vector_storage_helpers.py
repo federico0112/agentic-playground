@@ -4,26 +4,17 @@ Book Vectorization Module.
 Loads PDF books, splits them into chunks, generates embeddings using Google's
 Gemini embeddings, and stores them in MongoDB for semantic search.
 
-Usage:
-    from load_book_vectors import (
+Provides both sync and async versions.
+
+Usage (Sync):
+    from vector_storage_helpers import (
         create_embeddings,
         create_mongo_vector_store,
-        load_documents,
-        store_documents,
-        test_vector_search
+        store_documents
     )
 
-    # Create components
-    embeddings = create_embeddings()
-    vector_store = create_mongo_vector_store(uri, db, coll, index, embeddings)
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-
-    # Load and store documents
-    documents = load_documents()
-    stored_ids = store_documents(documents, vector_store, text_splitter)
-
-    # Or use all-in-one test function
-    results = test_vector_search(vector_store, text_splitter, "search query")
+Usage (Async):
+    from vector_storage_helpers import store_documents_async
 """
 
 from pathlib import Path
@@ -32,7 +23,6 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_mongodb import MongoDBAtlasVectorSearch
@@ -137,6 +127,54 @@ def store_documents(
         print(f"  Storing chunks in MongoDB...")
         uuids = [str(uuid4()) for _ in range(len(split_documents))]
         vector_store.add_documents(split_documents, ids=uuids, batch_size=1000)
+        stored_ids[doc_path] = uuids
+        print(f"  ✓ Stored {len(split_documents)} chunks")
+
+        total_chunks_stored += len(split_documents)
+
+    print(f"\n{'='*80}")
+    print(f"✓ Vector storage complete")
+    print(f"  Total chunks stored: {total_chunks_stored}")
+    print(f"{'='*80}\n")
+
+    return stored_ids
+
+
+async def store_documents_async(
+    documents: Dict[Path, List[Document]],
+    vector_store: MongoDBAtlasVectorSearch,
+    text_splitter: RecursiveCharacterTextSplitter
+) -> Dict[Path, List[str]]:
+    """Split documents into chunks and store them in the vector store (async version).
+
+    Args:
+        documents: Dictionary mapping PDF file paths to their loaded Document objects
+        vector_store: Configured MongoDB Atlas Vector Search instance
+        text_splitter: Text splitter for chunking documents
+
+    Returns:
+        Dict[Path, List[str]]: Dictionary mapping file paths to lists of stored document UUIDs
+
+    Note:
+        - Automatically generates UUIDs for each chunk
+        - Embeddings are generated automatically by the vector store using aadd_documents
+        - Prints progress for each document processed
+    """
+    total_chunks_stored = 0
+    stored_ids: Dict[Path, List[str]] = {}
+
+    for doc_path, doc in documents.items():
+        print(f"\nProcessing: {doc_path.name}")
+
+        # Split documents into chunks
+        split_documents = text_splitter.split_documents(doc)
+        print(f"  Split into {len(split_documents)} chunks")
+
+        # Store in vector store (embeddings are generated automatically)
+        # Use aadd_documents for async operation
+        print(f"  Storing chunks in MongoDB...")
+        uuids = [str(uuid4()) for _ in range(len(split_documents))]
+        await vector_store.aadd_documents(split_documents, ids=uuids)
         stored_ids[doc_path] = uuids
         print(f"  ✓ Stored {len(split_documents)} chunks")
 

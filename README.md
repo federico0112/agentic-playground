@@ -4,11 +4,13 @@ A semantic search system that vectorizes PDF documents and enables intelligent q
 
 ## Architecture
 
-The project consists of three main components:
+The project consists of two main components:
 
-1. **Upload Server (FastAPI)** - Handles PDF uploads and vectorization into MongoDB
-2. **Semantic Search Agent (LangGraph)** - AI agent that performs semantic search and answers questions
-3. **React UI** - Web interface for uploading documents and querying the agent
+1. **Unified Backend (LangGraph + FastAPI)** - Single server that provides:
+   - PDF upload and vectorization endpoints
+   - Semantic search agent via LangGraph
+   - Document management endpoints
+2. **React UI** - Web interface for uploading documents and querying the agent
 
 ## Prerequisites
 
@@ -77,26 +79,11 @@ docker run -d -p 61213:27017 --name mongodb mongo:latest
 
 ## Running the Application
 
-You need to start three servers in separate terminal windows:
+You need to start two services in separate terminal windows:
 
-### Terminal 1: Upload Server (FastAPI)
+### Terminal 1: Backend Server
 
-The upload server handles PDF file uploads and vectorization.
-
-```bash
-cd backend/
-uvicorn upload_server:app --port 8000
-```
-
-The server will start on `http://localhost:8000`
-
-**Endpoints:**
-- `POST /upload` - Upload and vectorize PDF files
-- `GET /health` - Health check
-
-### Terminal 2: Semantic Search Agent (LangGraph)
-
-The LangGraph server runs the AI agent for semantic search.
+The unified LangGraph server provides both the semantic search agent and upload endpoints.
 
 ```bash
 # From project root
@@ -105,11 +92,18 @@ langgraph dev
 
 The server will start on `http://localhost:2024`
 
+**Endpoints:**
+- `POST /upload` - Upload and vectorize PDF files
+- `GET /sources` - List available document sources
+- `GET /upload/health` - Health check for upload service
+- LangGraph agent endpoints (standard LangGraph API)
+
 **Configuration:**
 - Defined in `langgraph.json`
 - Agent implementation: `backend/semantic_search_agent.py:agent`
+- Custom routes: `backend/webapp.py:app`
 
-### Terminal 3: React UI
+### Terminal 2: React UI
 
 The web interface for interacting with the system.
 
@@ -135,12 +129,14 @@ The UI will open automatically at `http://localhost:3000`
 
 ## Features
 
-### Upload Server
+### Unified Backend
 - PDF parsing and text extraction
 - Automatic chunking (1000 chars, 100 overlap)
 - Google Generative AI embeddings (gemini-embedding-001)
 - MongoDB Atlas Vector Search integration
 - CORS enabled for web access
+- Custom upload and document management endpoints
+- Integrated with LangGraph server
 
 ### Semantic Search Agent
 - Powered by Gemini 2.5 Flash
@@ -195,7 +191,7 @@ mypy backend/
 agentic-playground/
 ├── backend/
 │   ├── semantic_search_agent.py    # LangGraph agent implementation
-│   ├── upload_server.py            # FastAPI upload server
+│   ├── webapp.py                   # Custom FastAPI routes (upload, sources)
 │   ├── vector_storage_helpers.py   # MongoDB vector store utilities
 │   └── tests/                      # Backend tests
 ├── semantic-search-ui/
@@ -217,28 +213,26 @@ agentic-playground/
 - Check the `MONGODB_URI` in your `.env` file
 - Ensure network connectivity and firewall settings
 
-### Upload Server Errors
+### Backend Server Errors
 - Verify Google API key is valid and has Generative AI API enabled
 - Check MongoDB connection and index creation
 - Review logs for specific error messages
-
-### LangGraph Agent Issues
 - Ensure `.env` file is in the project root
-- Verify `langgraph.json` paths are correct
+- Verify `langgraph.json` paths are correct for both agent and webapp
 - Check LangSmith configuration if using tracing
 
 ### UI Connection Issues
-- Confirm all three servers are running
+- Confirm both services are running (backend on :2024, UI on :3000)
 - Check CORS settings if accessing from different origin
-- Verify API URLs in `App.js` match your server ports
+- Verify `BACKEND_URL` in `App.js` points to `http://localhost:2024`
 
 ## API Reference
 
-### Upload Server (Port 8000)
+### Unified Backend Server (Port 2024)
 
 **POST /upload**
 ```bash
-curl -X POST http://localhost:8000/upload \
+curl -X POST http://localhost:2024/upload \
   -F "file=@path/to/document.pdf"
 ```
 
@@ -252,14 +246,19 @@ Response:
 }
 ```
 
-**GET /health**
+**GET /sources**
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:2024/sources
 ```
 
-### LangGraph Agent (Port 2024)
+**GET /upload/health**
+```bash
+curl http://localhost:2024/upload/health
+```
 
-The LangGraph API provides standard endpoints for agent interaction. See [LangGraph documentation](https://langchain-ai.github.io/langgraph/cloud/) for details.
+**LangGraph Agent Endpoints**
+
+The server also provides standard LangGraph API endpoints for agent interaction. See [LangGraph documentation](https://langchain-ai.github.io/langgraph/cloud/) for details.
 
 ## License
 
