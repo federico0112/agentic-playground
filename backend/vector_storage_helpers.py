@@ -84,10 +84,16 @@ def create_mongo_vector_store(
     )
 
     # Create vector search index if requested
+    # Google's gemini-embedding-001 produces 3072-dimensional vectors
     if create_index:
         try:
-            vector_store.create_vector_search_index(dimensions=3072)
-            print(f"✓ Created vector search index: {index_name}")
+            # filters parameter expects list of field names (strings), not dicts
+            vector_store.create_vector_search_index(
+                dimensions=3072,
+                filters=["source"],  # List of field names to enable as filters
+                wait_until_complete=None
+            )
+            print(f"✓ Created vector search index: {index_name} (3072 dims, source filter enabled)")
         except Exception as e:
             print(f"Note: Vector index may already exist or creation skipped: {e}")
 

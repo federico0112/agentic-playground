@@ -4,6 +4,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import './App.css';
+import SourcesPanel from './components/SourcesPanel';
 
 const BACKEND_URL = 'http://localhost:2024'; // Unified backend (LangGraph + custom routes)
 const LANGGRAPH_URL = BACKEND_URL;
@@ -205,6 +206,8 @@ function App() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [threadId, setThreadId] = useState(null);
+  const [sourcesRefreshTrigger, setSourcesRefreshTrigger] = useState(0);
+  const [selectedSources, setSelectedSources] = useState([]);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -246,11 +249,29 @@ function App() {
     }
   };
 
+  // Toggle source selection
+  const toggleSourceSelection = (source) => {
+    setSelectedSources((prev) => {
+      if (prev.includes(source)) {
+        return prev.filter((s) => s !== source);
+      } else {
+        return [...prev, source];
+      }
+    });
+  };
+
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
-    const userMessage = { role: 'user', content: input };
+    // Append source filter if sources are selected
+    let messageContent = input;
+    if (selectedSources.length > 0) {
+      const sourcesList = selectedSources.map(s => `"${s}"`).join(', ');
+      messageContent = `${input}\n\n[Filter by sources: ${sourcesList}]`;
+    }
+
+    const userMessage = { role: 'user', content: input }; // Show original input to user
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
@@ -279,7 +300,7 @@ function App() {
         body: JSON.stringify({
           assistant_id: 'agent',
           input: {
-            messages: [{ role: 'user', content: input }]
+            messages: [{ role: 'user', content: messageContent }] // Use modified content with source filter
           },
           stream_mode: ['messages']
         }),
@@ -380,6 +401,7 @@ function App() {
         const data = await response.json();
         console.log('[Upload] Success response:', data);
         setMessages((prev) => [...prev, { role: 'system', content: `"${file.name}" uploaded and vectorized: ${data.pages} pages, ${data.chunks} chunks stored.` }]);
+        setSourcesRefreshTrigger(prev => prev + 1);
       } else {
         const errorText = await response.text();
         console.log('[Upload] Error response body:', errorText);
@@ -405,7 +427,8 @@ function App() {
         </div>
       </header>
 
-      <div className="chat-container">
+      <div className="main-layout">
+        <div className="chat-container">
         {threadId && <div className="thread-indicator">Thread: {threadId.slice(0, 8)}...</div>}
         <div className="messages">
           {messages.length === 0 && <div className="empty-state">Ask me anything about your books!</div>}
@@ -460,15 +483,43 @@ function App() {
         </div>
 
         <form className="input-form" onSubmit={sendMessage}>
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
-            disabled={isLoading}
-          />
-          <button type="submit" disabled={isLoading || !input.trim()}>Send</button>
+          {selectedSources.length > 0 && (
+            <div className="selected-sources-indicator">
+              <span className="indicator-label">Filtering by:</span>
+              <div className="selected-sources-tags">
+                {selectedSources.map((source, idx) => (
+                  <span key={idx} className="source-tag">
+                    {source}
+                    <button
+                      type="button"
+                      className="remove-tag-btn"
+                      onClick={() => toggleSourceSelection(source)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="input-row">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Type your message..."
+              disabled={isLoading}
+            />
+            <button type="submit" disabled={isLoading || !input.trim()}>Send</button>
+          </div>
         </form>
+        </div>
+
+        <SourcesPanel
+          refreshTrigger={sourcesRefreshTrigger}
+          selectedSources={selectedSources}
+          onToggleSource={toggleSourceSelection}
+        />
       </div>
     </div>
   );

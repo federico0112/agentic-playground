@@ -76,10 +76,10 @@ llm = ChatGoogleGenerativeAI(
 
 
 def initialize_vector_store():
-    """Initialize MongoDB Atlas Vector Search connection.
+    """Initialize MongoDB Atlas Vector Search connection and ensure index exists.
 
     Returns:
-        MongoDBAtlasVectorSearch: Connected vector store
+        MongoDBAtlasVectorSearch: Connected vector store with proper index configuration
     """
     try:
         client = MongoClient(MONGODB_URI)
@@ -99,6 +99,22 @@ def initialize_vector_store():
         print(f"  Collection: {COLLECTION_NAME}")
         print(f"  Total Documents: {total_docs}")
 
+        # Ensure vector search index exists with source metadata filtering
+        # Google's gemini-embedding-001 produces 3072-dimensional vectors
+        print(f"\n✓ Ensuring vector search index '{INDEX_NAME}' exists...")
+        try:
+            # filters parameter expects list of field names (strings), not dicts
+            store.create_vector_search_index(
+                dimensions=3072,
+                filters=["source"],  # List of field names to enable as filters
+                wait_until_complete=None  # Don't wait for index to be ready (async process)
+            )
+            print(f"  ✓ Vector index created/verified with source metadata filter")
+        except Exception as e:
+            # Index might already exist - this is fine
+            print(f"  ℹ Index status: {e}")
+            print(f"  ✓ Proceeding with existing index configuration")
+
         return store
 
     except Exception as e:
@@ -117,23 +133,36 @@ vector_store: Optional[MongoDBAtlasVectorSearch] = initialize_vector_store()
     "semantic_search",
     description="Search the book collection using semantic similarity. "
                 "Returns relevant passages from books that match the query. "
-                "Use this to find information about specific topics in the books."
+                "Use this to find information about specific topics in the books. "
+                "Optionally filter results to specific source files using filter_by_files parameter."
 )
-def semantic_search(query: str, top_k: int = TOP_K) -> List[Tuple[Document, float]]:
+def semantic_search(query: str, top_k: int = TOP_K, filter_by_files: List[str] = None) -> List[Tuple[Document, float]]:
     """Perform semantic search on vectorized documents.
 
     Args:
         query: The search query (question or topic to search for)
-        top_k: Number of results to return (default: 5)
+        top_k: Number of results to return (default: 10)
+        filter_by_files: Optional list of source filenames to filter by (e.g., ["book1.pdf", "book2.pdf"])
 
     Returns:
-        results: List of tuples where the tuple contains document relevant to query with score of how relevant document is to semantic search
+        results: List of tuples where the tuple contains document relevant to query with score
     """
+    # Construct pre_filter only if filter_by_files is provided and not empty
+    pre_filter = None
+    if filter_by_files and len(filter_by_files) > 0:
+        if len(filter_by_files) == 1:
+            # Single file: use simple equality
+            pre_filter = {"source": {"$eq": filter_by_files[0]}}
+        else:
+            # Multiple files: use $in operator
+            pre_filter = {"source": {"$in": filter_by_files}}
+
     try:
         # Perform similarity search with scores
         results: List[Tuple[Document, float]] = vector_store.similarity_search_with_score(
             query=query,
-            k=top_k
+            k=top_k,
+            pre_filter=pre_filter
         )
 
         return results
@@ -174,16 +203,20 @@ def get_source_filenames() -> str:
 SYSTEM_PROMPT = """You are a Semantic Search Assistant for a book collection. Your role is to help users find information across vectorized documents using semantic search.
 
 Your Capabilities:
-1. semantic_search(query, top_k) - Search books for relevant content
+1. semantic_search(query, top_k, filter_by_files) - Search books for relevant content
+   - query: The search query
+   - top_k: Number of results (default: 10)
+   - filter_by_files: Optional list of source filenames to search within (e.g., ["book1.pdf"])
 2. get_source_filenames() - View available sources
 
 Workflow:
 - When the user asks a question:
    1. Use semantic_search to find relevant passages from question asked
-   2. Analyze the search results
-   3. If search results don't contain all the information needed, with a new query to find missing info go to step 1.
-   4. Synthesize a comprehensive answer from the retrieved content
-   5. Cite sources (book name and page number)
+   2. If the user mentions specific books/files, use filter_by_files to search only those sources
+   3. Analyze the search results
+   4. If search results don't contain all the information needed, with a new query to find missing info go to step 1.
+   5. Synthesize a comprehensive answer from the retrieved content
+   6. Cite sources (book name and page number)
 
 - When the user wants to know what's available:
    - Use get_source_filenames to show what files are being referenced

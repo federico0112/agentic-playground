@@ -23,7 +23,7 @@ class TestSemanticSearchTool:
         result = semantic_search.invoke({"query": "What are dragons?", "top_k": 5})
 
         assert len(result) == 2
-        mock_vector_store.similarity_search_with_score.assert_called_once_with(query="What are dragons?", k=5)
+        mock_vector_store.similarity_search_with_score.assert_called_once_with(query="What are dragons?", k=5, pre_filter=None)
 
     @patch("backend.semantic_search_agent.vector_store")
     def test_semantic_search_uses_default_top_k(self, mock_vector_store):
@@ -34,7 +34,7 @@ class TestSemanticSearchTool:
 
         semantic_search.invoke({"query": "test query"})
 
-        mock_vector_store.similarity_search_with_score.assert_called_once_with(query="test query", k=TOP_K)
+        mock_vector_store.similarity_search_with_score.assert_called_once_with(query="test query", k=TOP_K, pre_filter=None)
 
     @patch("backend.semantic_search_agent.vector_store")
     def test_semantic_search_handles_empty_results(self, mock_vector_store):
@@ -57,6 +57,76 @@ class TestSemanticSearchTool:
         result = semantic_search.invoke({"query": "test"})
 
         assert result == []
+
+    @patch("backend.semantic_search_agent.vector_store")
+    def test_semantic_search_with_single_file_filter(self, mock_vector_store):
+        """Test that semantic search correctly constructs filter for single file."""
+        from backend.semantic_search_agent import semantic_search
+
+        mock_vector_store.similarity_search_with_score.return_value = []
+
+        semantic_search.invoke({"query": "test", "filter_by_files": ["book1.pdf"]})
+
+        # Verify pre_filter uses $eq for single file
+        call_args = mock_vector_store.similarity_search_with_score.call_args
+        assert call_args.kwargs["pre_filter"] == {"source": {"$eq": "book1.pdf"}}
+
+    @patch("backend.semantic_search_agent.vector_store")
+    def test_semantic_search_with_multiple_file_filter(self, mock_vector_store):
+        """Test that semantic search correctly constructs filter for multiple files."""
+        from backend.semantic_search_agent import semantic_search
+
+        mock_vector_store.similarity_search_with_score.return_value = []
+
+        semantic_search.invoke({"query": "test", "filter_by_files": ["book1.pdf", "book2.pdf"]})
+
+        # Verify pre_filter uses $in for multiple files
+        call_args = mock_vector_store.similarity_search_with_score.call_args
+        assert call_args.kwargs["pre_filter"] == {"source": {"$in": ["book1.pdf", "book2.pdf"]}}
+
+    @patch("backend.semantic_search_agent.vector_store")
+    def test_semantic_search_with_no_filter(self, mock_vector_store):
+        """Test that semantic search works without filter."""
+        from backend.semantic_search_agent import semantic_search
+
+        mock_vector_store.similarity_search_with_score.return_value = []
+
+        semantic_search.invoke({"query": "test"})
+
+        # Verify pre_filter is None when no filter is provided
+        call_args = mock_vector_store.similarity_search_with_score.call_args
+        assert call_args.kwargs["pre_filter"] is None
+
+    @patch("backend.semantic_search_agent.vector_store")
+    def test_semantic_search_with_empty_filter_list(self, mock_vector_store):
+        """Test that semantic search treats empty list as no filter."""
+        from backend.semantic_search_agent import semantic_search
+
+        mock_vector_store.similarity_search_with_score.return_value = []
+
+        semantic_search.invoke({"query": "test", "filter_by_files": []})
+
+        # Verify pre_filter is None when filter list is empty
+        call_args = mock_vector_store.similarity_search_with_score.call_args
+        assert call_args.kwargs["pre_filter"] is None
+
+    @patch("backend.semantic_search_agent.vector_store")
+    def test_semantic_search_with_filter_returns_filtered_results(self, mock_vector_store):
+        """Test that semantic search returns only results from filtered sources."""
+        from backend.semantic_search_agent import semantic_search
+
+        mock_results = [
+            (Document(page_content="Content from book1", metadata={"source": "book1.pdf", "page": 1}), 0.95),
+            (Document(page_content="More from book1", metadata={"source": "book1.pdf", "page": 2}), 0.85),
+        ]
+        mock_vector_store.similarity_search_with_score.return_value = mock_results
+
+        result = semantic_search.invoke({"query": "test", "filter_by_files": ["book1.pdf"]})
+
+        assert len(result) == 2
+        # Verify all results are from the filtered source
+        for doc, score in result:
+            assert doc.metadata["source"] == "book1.pdf"
 
 
 class TestGetSourceFilenamesTool:

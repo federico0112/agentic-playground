@@ -18,7 +18,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from fastapi import FastAPI, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from pymongo import MongoClient
+from pymongo import AsyncMongoClient
 
 from backend.vector_storage_helpers import (
     create_embeddings,
@@ -79,6 +79,7 @@ app.add_middleware(
 _embeddings = None
 _vector_store = None
 _text_splitter = None
+_index_ensured = False  # Track if we've created/verified the index
 
 
 def get_embeddings():
@@ -92,25 +93,55 @@ def get_embeddings():
 
 
 def get_vector_store():
-    """Get or initialize MongoDB vector store."""
+    """Get or initialize MongoDB vector store with proper index configuration."""
     global _vector_store
     if _vector_store is None:
         embeddings = get_embeddings()
         logger.info(f"Connecting to MongoDB: {DB_NAME}/{COLLECTION_NAME}")
-        _vector_store = create_mongo_vector_store(MONGODB_URI, DB_NAME, COLLECTION_NAME,
-                                                  embeddings=embeddings, index_name=MONGODB_INDEX_NAME)
-
-        # Ensure index exists
-        try:
-            logger.info(f"Ensuring vector index '{MONGODB_INDEX_NAME}' exists...")
-            _vector_store.create_vector_search_index(dimensions=3072)
-            logger.info("Vector index created/verified")
-        except Exception as e:
-            logger.debug(f"Index creation note: {e}")
-
-        logger.info("MongoDB vector store connected")
+        _vector_store = create_mongo_vector_store(
+            MONGODB_URI,
+            DB_NAME,
+            COLLECTION_NAME,
+            embeddings=embeddings,
+            index_name=MONGODB_INDEX_NAME,
+            create_index=False  # We'll create it manually on first upload
+        )
+        logger.info("MongoDB vector store connected and ready")
 
     return _vector_store
+
+
+async def ensure_vector_index():
+    """Ensure vector search index exists with source metadata filtering.
+
+    This is a one-time setup operation called from upload endpoint.
+    Runs in a thread pool to avoid blocking the event loop.
+    """
+    global _index_ensured
+
+    if _index_ensured:
+        return
+
+    def _create_index():
+        try:
+            vector_store = get_vector_store()
+            logger.info(f"Ensuring vector index '{MONGODB_INDEX_NAME}' exists with source filter...")
+            # Google's gemini-embedding-001 produces 3072-dimensional vectors
+            # filters parameter expects list of field names (strings), not dicts
+            vector_store.create_vector_search_index(
+                dimensions=3072,
+                filters=["source"],  # List of field names to enable as filters
+                wait_until_complete=None
+            )
+            logger.info("✓ Vector index created/verified with source metadata filter")
+        except Exception as e:
+            # Index likely already exists
+            logger.debug(f"Index creation note: {e}")
+            logger.info("✓ Using existing index configuration")
+
+    # Run blocking operation in thread pool
+    await asyncio.to_thread(_create_index)
+    _index_ensured = True
 
 
 def get_text_splitter():
@@ -183,6 +214,9 @@ async def upload_and_vectorize(file: UploadFile):
             logger.error("Could not extract content from PDF")
             raise HTTPException(status_code=400, detail="Could not extract content from PDF")
 
+        # Ensure index exists (one-time operation)
+        await ensure_vector_index()
+
         # Get components and vectorize
         logger.info("Getting ML components...")
         vector_store = get_vector_store()
@@ -224,12 +258,12 @@ async def get_sources():
     """Get information about available document sources in the vector store."""
     try:
         logger.info("Fetching available sources from MongoDB...")
-        client = MongoClient(MONGODB_URI)
+        client = AsyncMongoClient(MONGODB_URI)
         collection = client[DB_NAME][COLLECTION_NAME]
 
         # Get unique sources
-        sources = collection.distinct("source")
-        total_chunks = collection.count_documents({})
+        sources = await collection.distinct("source")
+        total_chunks = await collection.count_documents({})
 
         logger.info(f"  Found {len(sources)} unique sources")
         logger.info(f"  Total chunks: {total_chunks}")
@@ -251,8 +285,8 @@ async def upload_health():
     """Health check for upload service."""
     try:
         # Check MongoDB connection
-        client = MongoClient(MONGODB_URI)
-        client.server_info()
+        client = AsyncMongoClient(MONGODB_URI)
+        await client.server_info()
         mongodb_status = "ok"
     except Exception:
         mongodb_status = "error"
@@ -277,9 +311,13 @@ async def upload_health():
 # ============================================================================
 
 # Log configuration on import (LangGraph manages lifespan, so no @app.on_event)
+# Vector store will be initialized lazily on first use
 logger.info("=" * 50)
 logger.info("Custom routes initialized")
 logger.info(f"  Upload endpoint: /upload")
 logger.info(f"  Sources endpoint: /sources")
+logger.info(f"  Health endpoint: /upload/health")
 logger.info(f"  MongoDB: {DB_NAME}/{COLLECTION_NAME}")
+logger.info(f"  Index: {MONGODB_INDEX_NAME}")
+logger.info("Vector store will initialize on first request")
 logger.info("=" * 50)
